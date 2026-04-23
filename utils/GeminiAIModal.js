@@ -4,7 +4,7 @@ const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
 const genAI = new GoogleGenerativeAI(apiKey);
 
 const model = genAI.getGenerativeModel({
-  model: "gemini-flash-latest",
+  model: "gemini-flash-lite-latest",
 });
 
 const generationConfig = {
@@ -12,14 +12,17 @@ const generationConfig = {
   topP: 0.95,
   topK: 40,
   maxOutputTokens: 8192,
-  responseMimeType: "text/plain",
+  responseMimeType: "application/json",
 };
 
 async function sendMessage(input) {
   try {
     console.log(model);
 
-    const result = await model.generateContent([input]);
+    const result = await model.generateContent({
+      contents: [{ role: "user", parts: [{ text: input }] }],
+      generationConfig,
+    });
 
     return result.response.text();
   } catch (error) {
