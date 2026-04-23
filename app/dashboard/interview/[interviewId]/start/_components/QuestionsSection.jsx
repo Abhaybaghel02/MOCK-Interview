@@ -1,7 +1,11 @@
 import { Lightbulb, Volume2 } from "lucide-react";
 import React from "react";
 
-const QuestionsSection = ({ mockInterviewQuestions, activeQuestionIndex }) => {
+const QuestionsSection = ({
+  mockInterviewQuestions,
+  activeQuestionIndex,
+  answeredQuestionIndexes = [],
+}) => {
   const textToSpeech = (text) => {
     if ("speechSynthesis" in window) {
       if (text) {
@@ -19,17 +23,23 @@ const QuestionsSection = ({ mockInterviewQuestions, activeQuestionIndex }) => {
     mockInterviewQuestions && (
       <div className="flex flex-col justify-between p-5 border rounded-lg my-1 bg-secondary">
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5 mb-5">
-          {mockInterviewQuestions.map((question, index) => (
-            <div
-              key={index}
-              className={`p-2 rounded-full text-xs md:text-sm text-center cursor-pointer ${
-                activeQuestionIndex === index ? "bg-primary text-white" : "bg-secondary"
-              }`}
-              onClick={() => console.log(`Question ${index + 1} clicked`)}
-            >
-              <h2 className="p-2">{`Question #${index + 1}`}</h2>
-            </div>
-          ))}
+          {mockInterviewQuestions.map((question, index) => {
+            const isAnswered = answeredQuestionIndexes.includes(index);
+            return (
+              <div
+                key={index}
+                className={`p-2 rounded-full text-xs md:text-sm text-center cursor-pointer ${
+                  activeQuestionIndex === index ? "bg-primary text-white" : "bg-secondary"
+                }`}
+                onClick={() => console.log(`Question ${index + 1} clicked`)}
+              >
+                <h2 className="p-2">
+                  {`Question #${index + 1}`}
+                  {isAnswered ? " ✓" : ""}
+                </h2>
+              </div>
+            );
+          })}
         </div>
         <div className="flex flex-col items-start w-full mt-5">
           <h2 className="text-md md:text-lg font-semibold my-5">
