@@ -20,6 +20,9 @@ const RecordAnswerSection = ({
   mockInterviewQuestions,
   activeQuestionIndex,
   interviewData,
+  onAnswerSaved,
+  onRecordingChange,
+  onSavingChange,
 }) => {
   const [userAnswer, setUserAnswer] = useState("");
   const { user } = useUser();
@@ -29,14 +32,39 @@ const RecordAnswerSection = ({
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   const mediaStreamRef = useRef(null);
+  const recordingQuestionIndexRef = useRef(null);
 
   const genAI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GEMINI_API_KEY);
 
   useEffect(() => {
-    if (!isRecording && userAnswer.length > 10) {
-      updateUserAnswer();
+    if (onRecordingChange) {
+      onRecordingChange(isRecording);
     }
-  }, [userAnswer]);
+  }, [isRecording, onRecordingChange]);
+
+  useEffect(() => {
+    if (onSavingChange) {
+      onSavingChange(loading);
+    }
+  }, [loading, onSavingChange]);
+
+  const normalizeRating = (value) => {
+    if (value === null || value === undefined) return null;
+
+    if (typeof value === "number" && !Number.isNaN(value)) {
+      return value;
+    }
+
+    if (typeof value === "string") {
+      const match = value.match(/\d+(\.\d+)?/);
+      if (match) {
+        const parsed = Number(match[0]);
+        return Number.isNaN(parsed) ? null : parsed;
+      }
+    }
+
+    return null;
+  };
 
   const startRecording = async () => {
     try {
@@ -47,6 +75,7 @@ const RecordAnswerSection = ({
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaStreamRef.current = stream;
+      recordingQuestionIndexRef.current = activeQuestionIndex;
 
       const mimeTypes = [
         "audio/webm;codecs=opus",
@@ -111,7 +140,16 @@ const RecordAnswerSection = ({
           ]);
 
           const transcription = result.response.text();
-          setUserAnswer((prevAnswer) => prevAnswer + " " + transcription);
+          setUserAnswer((prevAnswer) => {
+            const nextAnswer = prevAnswer
+              ? `${prevAnswer} ${transcription}`
+              : transcription;
+            updateUserAnswer({
+              answerText: nextAnswer,
+              questionIndex: recordingQuestionIndexRef.current,
+            });
+            return nextAnswer;
+          });
         } catch (error) {
           console.error("Transcription error:", error);
           toast("Error transcribing audio. Please try again.");
@@ -129,18 +167,28 @@ const RecordAnswerSection = ({
     }
   };
 
-  const updateUserAnswer = async () => {
+  const updateUserAnswer = async ({ answerText, questionIndex }) => {
     try {
+      if (!answerText || answerText.length < 10) {
+        return;
+      }
+
       if (!interviewData?.mockId) {
         throw new Error("MockId is null or undefined.");
       }
+
+      const questionSnapshot = mockInterviewQuestions?.[questionIndex];
+      if (!questionSnapshot?.question) {
+        throw new Error("Question snapshot is missing.");
+      }
+
       setLoading(true);
       console.log("Preparing feedback prompt...");
       const feedbackPrompt =
         "Question:" +
-        mockInterviewQuestions[activeQuestionIndex]?.question +
+        questionSnapshot.question +
         ", User Answer:" +
-        userAnswer +
+        answerText +
         " , Depends on question and user answer for given interview question" +
         " please give us rating for answer and feedback as area of improvement if any " +
         "in just 3 to 5 lines to improve it in JSON format with rating field and feedback field";
@@ -158,19 +206,23 @@ const RecordAnswerSection = ({
       }
 
       console.log("Inserting user answer into database...");
+      const normalizedRating = normalizeRating(jsonFeedbackResp?.rating);
       const resp = await db.insert(UserAnswer).values({
         mockIdRef: interviewData.mockId, // Corrected field name
-        question: mockInterviewQuestions[activeQuestionIndex]?.question,
-        correctAns: mockInterviewQuestions[activeQuestionIndex]?.answer,
-        userAns: userAnswer,
+        question: questionSnapshot.question,
+        correctAns: questionSnapshot.answer,
+        userAns: answerText,
         feedback: jsonFeedbackResp?.feedback,
-        rating: jsonFeedbackResp?.rating,
+        rating: normalizedRating === null ? null : String(normalizedRating),
         userEmail: user?.primaryEmailAddress?.emailAddress,
         createdAt: moment().format("YYYY-MM-DD"),
       });
 
       if (resp) {
         toast("User Answer recorded successfully");
+        if (onAnswerSaved) {
+          onAnswerSaved(questionIndex);
+        }
       } else {
         toast("Failed to record user answer");
       }
