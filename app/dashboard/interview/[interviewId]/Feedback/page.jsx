@@ -35,16 +35,35 @@ const Feedback = () => {
       .where(eq(UserAnswer.mockIdRef, interviewId))
       .orderBy(UserAnswer.id);
 
-    setFeedbackList(result);
+    const seenQuestions = new Set();
+    const deduped = [];
+
+    for (let i = result.length - 1; i >= 0; i -= 1) {
+      const entry = result[i];
+      if (!seenQuestions.has(entry.question)) {
+        seenQuestions.add(entry.question);
+        deduped.unshift(entry);
+      }
+    }
+
+    setFeedbackList(deduped);
   };
 
   const overallRating = useMemo(() => {
     if (feedbackList && feedbackList.length > 0) {
-      const totalRating = feedbackList.reduce(
-        (sum, item) => sum + Number(item.rating),
-        0
-      );
-      return (totalRating / feedbackList.length).toFixed(1);
+      const numericRatings = feedbackList
+        .map((item) => {
+          const parsed = Number(item.rating);
+          return Number.isNaN(parsed) ? null : parsed;
+        })
+        .filter((value) => value !== null);
+
+      if (numericRatings.length === 0) {
+        return "0.0";
+      }
+
+      const totalRating = numericRatings.reduce((sum, value) => sum + value, 0);
+      return (totalRating / numericRatings.length).toFixed(1);
     }
     return 0;
   }, [feedbackList]);

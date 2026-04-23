@@ -10,6 +10,41 @@ import db from '../../../utils/db'; // Import the database connection
 import { MockInterview } from '../../../utils/schema'; // Import your schema
 import { useRouter } from 'next/navigation';
 
+const extractJson = (text) => {
+    if (!text) return null;
+
+    const cleaned = text
+        .trim()
+        .replace(/```json/gi, '')
+        .replace(/```/g, '')
+        .trim();
+
+    try {
+        return JSON.parse(cleaned);
+    } catch (error) {
+        const arrayStart = cleaned.indexOf('[');
+        const objectStart = cleaned.indexOf('{');
+        const start = Math.min(
+            arrayStart === -1 ? Infinity : arrayStart,
+            objectStart === -1 ? Infinity : objectStart
+        );
+
+        if (start === Infinity) return null;
+
+        const endChar = cleaned[start] === '[' ? ']' : '}';
+        const end = cleaned.lastIndexOf(endChar);
+
+        if (end === -1 || end <= start) return null;
+
+        const candidate = cleaned.slice(start, end + 1);
+        try {
+            return JSON.parse(candidate);
+        } catch (nestedError) {
+            return null;
+        }
+    }
+};
+
 function AddNewInterview() {
     const [openDialog, setOpenDialog] = useState(false);
     const [jobPosition, setJobPosition] = useState('');
@@ -27,8 +62,8 @@ function AddNewInterview() {
     };
 
     const onSubmit = async (e) => {
-        setLoading(true);
         e.preventDefault();
+        setLoading(true);
     
         if (!jobPosition || !jobDescription || !jobExperience) {
             setError('Please fill in all fields.');
@@ -37,8 +72,8 @@ function AddNewInterview() {
         }
     
         setError('');
-        const questionsCount = process.env.NEXT_PUBLIC_INTERVIEW_QUESTIONS_COUNT || 5; // Default to 5 questions if not set
-        const InputPrompt = `Job Role: ${jobPosition}, Job Description: ${jobDescription}, Years of experience: ${jobExperience}, based on the details give me ${questionsCount} interview questions and answers in JSON format.`;
+        const questionsCount = Number(process.env.NEXT_PUBLIC_INTERVIEW_QUESTIONS_COUNT || 5);
+        const InputPrompt = `Job Role: ${jobPosition}. Job Description: ${jobDescription}. Years of experience: ${jobExperience}. Return only a JSON array of ${questionsCount} objects, each with "question" and "answer" keys. No prose or markdown.`;
     
         try {
             console.log('Sending message:', InputPrompt);
@@ -46,26 +81,17 @@ function AddNewInterview() {
             console.log('API Result:', result);
     
             if (result) {
-                let cleanedResponse = result.trim();
-                console.log('Cleaned Response (Before Replacing):', cleanedResponse);
-    
-                cleanedResponse = cleanedResponse.replace(/```json/g, '').replace(/```/g, '');
-                console.log('Cleaned Response (After Replacing):', cleanedResponse);
-    
+                const safeResponse = result.replace(/[\u0000-\u001F\u007F-\u009F]/g, '');
+                console.log('Safe Response:', safeResponse);
+
                 try {
-                    // Log the cleaned response before parsing
-                    console.log('Cleaned Response for Parsing:', cleanedResponse);
-    
-                    // Replace control characters that might cause issues
-                    const safeResponse = cleanedResponse.replace(/[\u0000-\u001F\u007F-\u009F]/g, '');
-                    console.log('Safe Response:', safeResponse);
-    
-                    let parsedResponse;
-                    try {
-                        parsedResponse = JSON.parse(safeResponse);
-                    } catch (jsonError) {
-                        console.error('Error parsing JSON:', jsonError);
+                    let parsedResponse = extractJson(safeResponse);
+                    if (!parsedResponse) {
                         throw new Error('Failed to parse the JSON response.');
+                    }
+
+                    if (!Array.isArray(parsedResponse) && Array.isArray(parsedResponse?.questions)) {
+                        parsedResponse = parsedResponse.questions;
                     }
     
                     console.log('Generated Interview Questions and Answers:', parsedResponse);
@@ -133,13 +159,13 @@ function AddNewInterview() {
     
 
     return (
-        <form onSubmit={onSubmit} className="space-y-6">
-            <div className="space-y-4">
-                <div className='p-4 border rounded-lg bg-blue-500 hover:bg-blue-600 cursor-pointer text-white text-center transition-all' onClick={() => setOpenDialog(true)}>
-                    <h2 className='text-lg font-semibold'>+ Add New</h2>
-                </div>
-                <Dialog open={openDialog} onOpenChange={setOpenDialog}>
-                    <DialogContent className="max-w-2xl bg-gray-100 p-6 rounded-lg shadow-lg">
+        <div className="space-y-4">
+            <div className='p-4 border rounded-lg bg-blue-500 hover:bg-blue-600 cursor-pointer text-white text-center transition-all' onClick={() => setOpenDialog(true)}>
+                <h2 className='text-lg font-semibold'>+ Add New</h2>
+            </div>
+            <Dialog open={openDialog} onOpenChange={setOpenDialog}>
+                <DialogContent className="max-w-2xl bg-gray-100 p-6 rounded-lg shadow-lg">
+                    <form onSubmit={onSubmit} className="space-y-6">
                         <DialogHeader>
                             <DialogTitle className="text-2xl font-bold mb-4">Tell us more about your job interview</DialogTitle>
                             <DialogDescription asChild>
@@ -162,14 +188,14 @@ function AddNewInterview() {
                         </DialogHeader>
                         <div className='flex gap-4 justify-end mt-6'>
                             <Button type="button" variant="outlined" onClick={() => setOpenDialog(false)}>Cancel</Button>
-                            <Button type="submit" disabled={loading} variant="contained" color="primary" onClick={onSubmit}>
+                            <Button type="submit" disabled={loading} variant="contained" color="primary">
                                 {loading ? <span>Generating from AI....</span> : 'Start Interview'}
                             </Button>
                         </div>
-                    </DialogContent>
-                </Dialog>
-            </div>
-        </form>
+                    </form>
+                </DialogContent>
+            </Dialog>
+        </div>
     );
 }
 
