@@ -28,6 +28,7 @@ const RecordAnswerSection = ({
   const [webCamEnabled, setWebCamEnabled] = useState(false);
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
+  const mediaStreamRef = useRef(null);
 
   const genAI = new GoogleGenerativeAI(process.env.NEXT_PUBLIC_GEMINI_API_KEY);
 
@@ -39,8 +40,24 @@ const RecordAnswerSection = ({
 
   const startRecording = async () => {
     try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        toast("Recording is not supported in this browser.");
+        return;
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorderRef.current = new MediaRecorder(stream);
+      mediaStreamRef.current = stream;
+
+      const mimeTypes = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/mp4",
+      ];
+      const supportedMimeType = mimeTypes.find((type) => MediaRecorder.isTypeSupported(type));
+
+      mediaRecorderRef.current = supportedMimeType
+        ? new MediaRecorder(stream, { mimeType: supportedMimeType })
+        : new MediaRecorder(stream);
       chunksRef.current = [];
 
       mediaRecorderRef.current.ondataavailable = (event) => {
@@ -52,6 +69,10 @@ const RecordAnswerSection = ({
       mediaRecorderRef.current.onstop = async () => {
         const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
         await transcribeAudio(audioBlob);
+        if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+          mediaStreamRef.current = null;
+        }
       };
 
       mediaRecorderRef.current.start();
@@ -70,21 +91,36 @@ const RecordAnswerSection = ({
 
   const transcribeAudio = async (audioBlob) => {
     try {
+      if (!process.env.NEXT_PUBLIC_GEMINI_API_KEY) {
+        toast("Missing Gemini API key. Set NEXT_PUBLIC_GEMINI_API_KEY.");
+        return;
+      }
+
       setLoading(true);
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+      const model = genAI.getGenerativeModel({ model: "gemini-flash-lite-latest" });
       
       const reader = new FileReader();
       reader.readAsDataURL(audioBlob);
       reader.onloadend = async () => {
-        const base64Audio = reader.result.split(',')[1];
-        
-        const result = await model.generateContent([
-          "Transcribe the following audio:",
-          { inlineData: { data: base64Audio, mimeType: "audio/webm" } },
-        ]);
+        try {
+          const base64Audio = reader.result.split(',')[1];
+          
+          const result = await model.generateContent([
+            "Transcribe the following audio:",
+            { inlineData: { data: base64Audio, mimeType: "audio/webm" } },
+          ]);
 
-        const transcription = result.response.text();
-        setUserAnswer((prevAnswer) => prevAnswer + " " + transcription);
+          const transcription = result.response.text();
+          setUserAnswer((prevAnswer) => prevAnswer + " " + transcription);
+        } catch (error) {
+          console.error("Transcription error:", error);
+          toast("Error transcribing audio. Please try again.");
+        } finally {
+          setLoading(false);
+        }
+      };
+      reader.onerror = () => {
+        toast("Failed to read audio data.");
         setLoading(false);
       };
     } catch (error) {
